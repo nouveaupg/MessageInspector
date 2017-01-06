@@ -16,6 +16,9 @@ typedef struct OpenPGPMessage {
 	unsigned long length;
 	unsigned long header_pos;
 	unsigned long footer_pos;
+	unsigned long decoded_data_len;
+	unsigned long target_checksum;
+	unsigned long calculated_checksum;
 	OPENPGP_MESSAGE_TYPE type;
 	int validity; // the maximum strictness value this message has been validated with
 	// strictness - default = 0, positive numbers more strict, negative less

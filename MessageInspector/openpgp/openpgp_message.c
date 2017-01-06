@@ -76,18 +76,86 @@ OPENPGP_MESSAGE *search_for_openpgp_msg(void *utf8_buffer, unsigned long buffer_
 	return output;
 }
 
-OPENPGP_MESSAGE_TYPE validate_message(OPENPGP_MESSAGE *in, int strictness) {
-	unsigned char *decoded_data = 0;
-	unsigned long decoded_data_len = get_base64_decoded_len(in);
-	if (decoded_data_len > 0) {
-		decoded_data = base64_decoded_msg_data(in);
-		long message_checksum = get_msg_checksum(in);
-		long crc = crc_checksum(decoded_data, decoded_data_len);
-		free(decoded_data);
+unsigned long extract_base64_data(unsigned char *utf8_in, unsigned long in_buffer_len, unsigned char *utf8_out, unsigned long out_buffer_len) {
+	unsigned int output_pos = 0;
+	unsigned char *ptr = utf8_in;
+	unsigned long remainder = in_buffer_len;
+	int pos = next_line_pos(ptr, remainder);
+	int line_len;
 
+	while (pos != -1) {
+		line_len = 0;
+		for (int x = 0; x < pos; x++) {
+			// we ignore all lines with a dash or colon (because they aren't Base64 data)
+			if (ptr[x] == '-' || ptr[x] == ':') {
+				line_len = 0;
+				break;
+			}
+			line_len += is_char_base64(ptr[x]);
+		}
+
+		if (line_len > 0) {
+			for (int z = 0; z < pos; z++) {
+				if (is_char_base64(ptr[z])) {
+					utf8_out[output_pos++] = ptr[z];
+				}
+				if (output_pos == (out_buffer_len-1)) {
+					// if we reach the end of the output buffer, stop writing to it
+					break;
+				}
+			}
+		}
+
+		if (*ptr == '=') {
+			break;
+		}
+		ptr = (ptr + pos);
+		remainder = remainder - pos;
+		pos = next_line_pos(ptr, remainder);
+	}
+
+	return output_pos;
+}
+
+unsigned long decode_base64_data(unsigned char *utf8_in, unsigned long in_buffer_len, unsigned char *utf8_out, unsigned long out_buffer_len) {
+	unsigned long base64_encoded_data_len = get_base64_decoded_len(utf8_in, in_buffer_len);
+	if (base64_encoded_data_len > 0) {
+		unsigned char *base64_encoded_buffer = malloc(base64_encoded_data_len);
+		if (base64_encoded_buffer) {
+			unsigned long result = extract_base64_data(utf8_in, in_buffer_len, base64_encoded_buffer, base64_encoded_data_len);
+			if (result == extract_base64_data(utf8_in, in_buffer_len, base64_encoded_buffer, base64_encoded_data_len)) {
+				int decoded_bytes = Base64decode(utf8_out, base64_encoded_buffer);
+				if (decoded_bytes == out_buffer_len) {
+					return out_buffer_len;
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+OPENPGP_MESSAGE_TYPE validate_message(OPENPGP_MESSAGE *in, int strictness) {
+
+	unsigned char *decoded_data = 0;
+	unsigned char *base64_start = NULL;
+	unsigned char *base64_data = NULL;
+	unsigned long decoded_data_len = get_base64_decoded_len(in->bytes, in->length);
+	unsigned int base64_data_len = count_base64_chars(in->bytes, in->length);
+	if (decoded_data_len > 0) {
+		// TODO: finish this function
+		in->decoded_data_len = decoded_data_len;
+		base64_data = malloc(base64_data_len+1);
+		if (decoded_data) {
+			unsigned long result = extract_base64_data(in->bytes, in->length, base64_data, base64_data_len);
+			if (result > 0) {
+				decoded_data = malloc(decoded_data_len);
+				Base64decode(decoded_data, base64_data);
+				in->calculated_checksum = crc_checksum(decoded_data, decoded_data_len);
+			}
+		}
 		if (strictness >= 0) {
 			// default strictness, require crc to match
-			if (crc == message_checksum) {
+			if (1) {
 				if (in->validity > strictness) {
 					in->validity = strictness;
 				}
@@ -101,7 +169,7 @@ OPENPGP_MESSAGE_TYPE validate_message(OPENPGP_MESSAGE *in, int strictness) {
 			return in->type;
 		}
 	}
-
+	
 	return OPENPGP_MSG_TYPE_INVALID;
 }
 
@@ -166,7 +234,7 @@ int is_char_base64(char c)
 	return 0;
 }
 
-unsigned long get_base64_decoded_len(char *utf8_buffer, unsigned long buffer_len) {
+unsigned long count_base64_chars(char *utf8_buffer, unsigned long buffer_len) {
 	unsigned char *ptr = utf8_buffer;
 	unsigned long remainder = buffer_len;
 	unsigned int base64_encoded_data_len = 0;
@@ -191,51 +259,27 @@ unsigned long get_base64_decoded_len(char *utf8_buffer, unsigned long buffer_len
 		remainder = remainder - pos;
 		pos = next_line_pos(ptr, remainder);
 	}
+	return base64_encoded_data_len;
+}
+
+unsigned long get_base64_decoded_len(char *utf8_buffer, unsigned long buffer_len) {
+	unsigned char *ptr = utf8_buffer;
+	unsigned long remainder = buffer_len;
+	unsigned int base64_encoded_data_len = count_base64_chars(utf8_buffer, buffer_len);
+
+	int pos;
+	int line_len;
 
 	if (base64_encoded_data_len > 0) {
 		unsigned char *base64_encoded_data = malloc(base64_encoded_data_len+1);
 		// Base64 decoding library needs a null terminated string
 		base64_encoded_data[base64_encoded_data_len] = 0;
 		if (base64_encoded_data) {
-			unsigned int encoded_pos = 0;
-			ptr = utf8_buffer;
-			remainder = buffer_len;
-			pos = next_line_pos(ptr,remainder);
-
-			while (pos != -1) {
-				line_len = 0;
-				for (int x = 0; x < pos; x++) {
-					// we ignore all lines with a dash or colon (because they aren't Base64 data)
-					if (ptr[x] == '-' || ptr[x] == ':') {
-						line_len = 0;
-						break;
-					}
-					line_len += is_char_base64(ptr[x]);
-				}
-
-				if (line_len > 0) {
-					for (int z = 0; z < pos; z++) {
-						if (is_char_base64(ptr[z])) {
-							base64_encoded_data[encoded_pos++] = ptr[z];
-						}
-						if (encoded_pos == base64_encoded_data_len) {
-							break;
-						}
-					}
-				}
-
-				if (*ptr == '=') {
-					break;
-				}
-				ptr = (ptr + pos);
-				remainder = remainder - pos;
-				pos = next_line_pos(ptr, remainder);
-			}
-
-			if (encoded_pos == base64_encoded_data_len) {
-				int base64_decoded_len = Base64decode_len(base64_encoded_data);
-				if (base64_decoded_len > 0) {
-					return base64_decoded_len;
+			if (extract_base64_data(utf8_buffer, buffer_len, base64_encoded_data, base64_encoded_data_len + 1) == base64_encoded_data_len) {
+				int decoded_data_len = Base64decode_len(base64_encoded_data);
+				free(base64_encoded_data);
+				if (decoded_data_len > 0) {
+					return decoded_data_len;
 				}
 			}
 		}

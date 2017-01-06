@@ -205,6 +205,13 @@ BOOL CMessageInspectorDlg::import_utf8_data(char * buffer, size_t buffer_len)
 {
 	if (buffer) {
 		OPENPGP_MESSAGE *firstMessage = search_for_openpgp_msg(buffer, buffer_len, 0);
+		if (firstMessage) {
+			int validity = validate_message(firstMessage, 0);
+			AfxMessageBox(_T("Found message"));
+		}
+		else {
+			AfxMessageBox(_T("No ASCII armoured PGP message found in clipboard."));
+		}
 	}
 
 	return 0;
