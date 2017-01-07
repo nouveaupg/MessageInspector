@@ -76,6 +76,33 @@ OPENPGP_MESSAGE *search_for_openpgp_msg(void *utf8_buffer, unsigned long buffer_
 	return output;
 }
 
+long locate_crc(unsigned char *utf8_in, unsigned long in_buffer_len) {
+	unsigned char encoded_crc[5] = { 0, 0, 0, 0, 0 };
+	short crc_count = 0;
+	unsigned char *crc_string = NULL;
+	for (unsigned long x = 1; x++; x < in_buffer_len) {
+		if (utf8_in[x] == '=' &&  utf8_in[x - 1] == '\n') {
+			crc_string = (unsigned char*)(utf8_in+x);
+			break;
+		}
+	}
+	int l = 6;
+	int k = 0;
+	while (l-- > 0) {
+		if (*crc_string != '\n' && *crc_string != '\r' && *crc_string != '=') {
+			encoded_crc[crc_count++] = *crc_string;
+		}
+		else if( *crc_string == '\r' || *crc_string == '\n' || crc_count > 4 ) {
+			break;
+		}
+		else {
+			k++;		
+		}
+		*crc_string++;
+	}
+	return 1;
+}
+
 unsigned long extract_base64_data(unsigned char *utf8_in, unsigned long in_buffer_len, unsigned char *utf8_out, unsigned long out_buffer_len) {
 	unsigned int output_pos = 0;
 	unsigned char *ptr = utf8_in;
@@ -139,8 +166,10 @@ OPENPGP_MESSAGE_TYPE validate_message(OPENPGP_MESSAGE *in, int strictness) {
 	unsigned char *decoded_data = 0;
 	unsigned char *base64_start = NULL;
 	unsigned char *base64_data = NULL;
+	long target_crc = locate_crc(in->bytes,in->length);
 	unsigned long decoded_data_len = get_base64_decoded_len(in->bytes, in->length);
 	unsigned int base64_data_len = count_base64_chars(in->bytes, in->length);
+	
 	if (decoded_data_len > 0) {
 		// TODO: finish this function
 		in->decoded_data_len = decoded_data_len;
