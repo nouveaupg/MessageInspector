@@ -62,6 +62,9 @@
     <ClCompile Include="openpgp\base64.c">
       <Filter>OpenPGP</Filter>
     </ClCompile>
+    <ClCompile Include="openpgp_packet.c">
+      <Filter>OpenPGP</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MessageInspector.rc">

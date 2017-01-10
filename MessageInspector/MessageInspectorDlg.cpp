@@ -207,6 +207,7 @@ BOOL CMessageInspectorDlg::import_utf8_data(char * buffer, size_t buffer_len)
 		OPENPGP_MESSAGE *firstMessage = search_for_openpgp_msg(buffer, buffer_len, 0);
 		if (firstMessage) {
 			int validity = validate_message(firstMessage, 0);
+			OPENPGP_PACKET *message_packet_chain = packetize_openpgp_message(firstMessage);
 			AfxMessageBox(_T("Found message"));
 		}
 		else {

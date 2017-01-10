@@ -57,6 +57,11 @@ OPENPGP_MESSAGE *search_for_openpgp_msg(void *utf8_buffer, unsigned long buffer_
 			output->header_pos = start_offset;
 			output->footer_pos = end_offset;
 			output->validity = strictness;
+			output->target_checksum = locate_crc(utf8_buffer,buffer_len);
+			output->calculated_checksum = crc_checksum(utf8_buffer, buffer_len);
+			if (output->target_checksum != output->calculated_checksum) {
+				output->validity - 100;
+			}
 		}
 	}
 	else {
@@ -82,26 +87,31 @@ long locate_crc(unsigned char *utf8_in, unsigned long in_buffer_len) {
 	unsigned char *crc_string = NULL;
 	for (unsigned long x = 1; x++; x < in_buffer_len) {
 		if (utf8_in[x] == '=' &&  utf8_in[x - 1] == '\n') {
-			crc_string = (unsigned char*)(utf8_in+x);
+			crc_string = (unsigned char*)(utf8_in+x+1);
 			break;
 		}
 	}
-	int l = 6;
-	int k = 0;
-	while (l-- > 0) {
-		if (*crc_string != '\n' && *crc_string != '\r' && *crc_string != '=') {
-			encoded_crc[crc_count++] = *crc_string;
+	char encoded_sextets[4] = { crc_string[0], crc_string[1], crc_string[2], crc_string[3] };
+	char decoded_sextets[4] = { 0,0,0,0 };
+	const char base64table[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	for (int k = 0; k < 4; k++) {
+		for (int j = 0; j < 64; j++) {
+			if (*(crc_string + k) == base64table[j]) {
+				decoded_sextets[k] = j;
+				break;
+			}
 		}
-		else if( *crc_string == '\r' || *crc_string == '\n' || crc_count > 4 ) {
-			break;
-		}
-		else {
-			k++;		
-		}
-		*crc_string++;
 	}
-	return 1;
+
+	long crc = 0;
+	crc = decoded_sextets[0] << 18;
+	crc |= decoded_sextets[1] << 12;
+	crc |= decoded_sextets[2] << 6;
+	crc |= decoded_sextets[3] & 64;
+	return crc;
 }
+
+
 
 unsigned long extract_base64_data(unsigned char *utf8_in, unsigned long in_buffer_len, unsigned char *utf8_out, unsigned long out_buffer_len) {
 	unsigned int output_pos = 0;
@@ -173,29 +183,20 @@ OPENPGP_MESSAGE_TYPE validate_message(OPENPGP_MESSAGE *in, int strictness) {
 	if (decoded_data_len > 0) {
 		// TODO: finish this function
 		in->decoded_data_len = decoded_data_len;
-		base64_data = malloc(base64_data_len+1);
+		base64_data = malloc(base64_data_len + 1);
+		decoded_data = malloc(decoded_data, decoded_data_len);
 		if (decoded_data) {
 			unsigned long result = extract_base64_data(in->bytes, in->length, base64_data, base64_data_len);
 			if (result > 0) {
 				decoded_data = malloc(decoded_data_len);
 				Base64decode(decoded_data, base64_data);
+				memset(base64_data, 0, base64_data_len);
+				in->target_checksum = locate_crc(in->bytes, in->decoded_data_len);
 				in->calculated_checksum = crc_checksum(decoded_data, decoded_data_len);
-			}
-		}
-		if (strictness >= 0) {
-			// default strictness, require crc to match
-			if (1) {
-				if (in->validity > strictness) {
-					in->validity = strictness;
+				if (in->target_checksum != in->calculated_checksum) {
+					return OPENPGP_MSG_TYPE_INVALID;
 				}
-				return in->type;
 			}
-		}
-		else {
-			if (in->validity > strictness) {
-				in->validity = strictness;
-			}
-			return in->type;
 		}
 	}
 	
